@@ -1,0 +1,63 @@
+name: deploy-name
+
+on:
+  push: #replace with or add pull_request, workflow dispatch, schedule, release, issues, watch, milestone, check_run, check_suite, label, delete, create, fork, deployment, deployment_status
+    branches: -branchname #change this to a branch name you want
+
+jobs:
+  #these will outline the activities that will be carried by this workflow
+  create-deployment: #modify this to any name you wish
+    runs-on: ubuntu-latest
+
+    steps: #steps followed in deploying
+      - name: checkout repo # name of activity
+        uses: actions/checkout@v2
+
+      #we will ship the code using docker
+      - name: setup docker
+        uses: docker/setup-buildx-action@v1
+
+      - name: build project image
+        env:
+          DOCKER_BUILDLIT: 1
+        run: |
+          echo: "${{secrets.ENV_NAME  }}" > .env
+          docker buildx build --secret id=TEST_ENV, src=.env --tag image tag .
+
+      - name: login to docker hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+
+      - name: push image to docker hub
+        run: |
+          docker push repo/path/name
+        env:
+          DOCKER_CLI_EXPERIMENTAL: enabled
+
+  deploy-code:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ssh into server using password
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{secrets.HOST_NAME}}
+          username: ${{secrets.USER_NAME}}
+          password: ${{secrets.SERVER_PASSWORD}}
+          script: |
+            #these scripts will be executed on the server
+            echo "now running on server"
+            docker pull image/name:tag
+
+            #stop and delete the currently running containers
+            echo "stopping running containers"
+            docker ps -q --filter "ancestor=parent/image:tag" | xargs -r docker stop
+            docker ps -q --filte "ancestor=parent/image:tag" | xargs -r docker rm
+
+            #run container with latest image
+            echo "running latest image"
+            docker run -d --name container-name -p hostport:dockerport image/name:tag
+
+            echo "succesfully build image"
